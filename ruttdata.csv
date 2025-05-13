@@ -1,0 +1,7 @@
+startadress,slutadress,max_lutning,risk_percent,total_length_m,label
+Andra Långgatan 1,Linnégatan 23,3.2,10.5,780,lätt
+Stigbergsliden 5,Stigberget 10,7.5,40.0,950,svår
+Linnégatan 15,Andra Långgatan 30,4.1,15.2,820,medel
+Masthuggstorget 1,Stigbergsliden 20,6.8,35.5,890,svår
+Linnégatan 5,Andra Långgatan 10,2.9,8.3,750,lätt
+
