@@ -1,5 +1,0 @@
-import joblib
-model_data = joblib.load("ml_modell.pkl")
-print(model_data.keys())  # Se vad som finns i modellen
-print(model_data['label_map'])  # Se klassnamn
-print(model_data['model'].feature_importances_)  # Se feature importances
