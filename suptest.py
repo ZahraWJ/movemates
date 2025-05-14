@@ -162,16 +162,20 @@ with st.sidebar.expander("📊 Dataset-analys: Majorna-Linné"):
 ORS_API_KEY = "5b3ce3597851110001cf62487ab1e05ef5b94e489695d7a4058f8bcd"
 client = openrouteservice.Client(key=ORS_API_KEY)
 
+# Optimera session state
 if "page" not in st.session_state:
     st.session_state.page = "login"
-if "saved_routes" not in st.session_state:
-    st.session_state.saved_routes = []
-if "forum_posts" not in st.session_state:
-    st.session_state.forum_posts = []
-if "reports" not in st.session_state:
-    st.session_state.reports = []
+if "user_info" not in st.session_state:
+    st.session_state.user_info = None
+if "last_route" not in st.session_state:
+    st.session_state.last_route = None
 
-# Meny
+# Rensa onödig data när man byter sida
+def clear_route_data():
+    if "last_route" in st.session_state:
+        del st.session_state.last_route
+
+# Uppdatera show_menu funktionen
 def show_menu():
     with st.sidebar:
         st.header("📋 Meny")
@@ -187,6 +191,8 @@ def show_menu():
             if st.button(label):
                 if page == "login":
                     st.session_state.clear()
+                elif page != st.session_state.page:
+                    clear_route_data()  # Rensa ruttdata vid sidbyte
                 st.session_state.page = page
                 st.rerun()
 
@@ -284,10 +290,15 @@ def show_map_with_position(route_coords, start_coords, end_coords):
     '''
     html(html_code, height=650)
 
-# Caching för ML-prediktioner
-@st.cache_data
-def predict_safety(route_features):
-    return model.predict(route_features)
+# Optimera ML-prediktioner med bättre caching
+@st.cache_data(ttl=3600)  # Cache för 1 timme
+def load_ml_model():
+    model_data = joblib.load('ml_modell.pkl')
+    return model_data['model'], model_data['label_map']
+
+# Ladda ML-modellen en gång vid start
+model, label_map = load_ml_model()
+reverse_label_map = {v: k for k, v in label_map.items()}
 
 # SID: LOGIN
 if st.session_state.page == "login":
