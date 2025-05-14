@@ -1,1 +1,23 @@
+[theme]
+primaryColor = "#004c99"
+backgroundColor = "#f9fbfd"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#004c99"
+font = "sans serif"
+base = "light"
 
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+magicEnabled = true
+
+[client]
+showErrorDetails = false
+
+[global]
+developmentMode = false
