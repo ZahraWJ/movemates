@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import openrouteservice
 from streamlit_folium import folium_static
 import folium
@@ -7,10 +8,6 @@ import os
 import json
 import streamlit.components.v1 as components
 import joblib
-import numpy as np
-import pickle
-import time
-from datetime import datetime
 import geopandas as gpd
 from shapely.geometry import Point, LineString
 import matplotlib.pyplot as plt
