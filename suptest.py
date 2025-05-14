@@ -196,6 +196,27 @@ from geopy.distance import geodesic
 GOTEBORG_CENTER = (57.7089, 11.9746)  # Göteborgs centrum
 MAX_DISTANCE_FROM_GBG_KM = 50         # Godtagbar radie
 
+# Optimera API-anrop med längre cache-tid och bättre felhantering
+@st.cache_data(ttl=7200)  # Cache för 2 timmar istället för 1
+def get_route_with_retry(start_coords, end_coords, max_retries=3, delay=2):  # Öka delay till 2 sekunder
+    for attempt in range(max_retries):
+        try:
+            route = client.directions(
+                coordinates=[start_coords, end_coords],
+                profile='foot-walking',
+                format='geojson',
+                instructions=True,
+                language='en'
+            )
+            return route
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(delay)  # Vänta längre mellan försök
+                continue
+            raise e
+
+# Caching för geokodning
+@st.cache_data(ttl=7200)
 def geocode_address(address):
     try:
         result = client.pelias_search(text=address, sources=["osm"])
@@ -205,7 +226,7 @@ def geocode_address(address):
         latlon = (coords[1], coords[0])
         distance = geodesic(latlon, GOTEBORG_CENTER).km
         if distance > MAX_DISTANCE_FROM_GBG_KM:
-            return None  # Utanför Göteborgs närhet
+            return None
         return tuple(coords)
     except Exception:
         return None
@@ -262,23 +283,6 @@ def show_map_with_position(route_coords, start_coords, end_coords):
     </html>
     '''
     html(html_code, height=650)
-
-# Caching för ORS API-anrop
-@st.cache_data(ttl=3600)  # Cache för 1 timme
-def get_route_with_retry(start_coords, end_coords, max_retries=3, delay=1):
-    for attempt in range(max_retries):
-        try:
-            route = client.directions(
-                coordinates=[start_coords, end_coords],
-                profile='foot-walking',
-                format='geojson'
-            )
-            return route
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(delay)  # Vänta mellan försök
-                continue
-            raise e
 
 # Caching för ML-prediktioner
 @st.cache_data
