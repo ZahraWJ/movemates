@@ -166,6 +166,8 @@ if "user_info" not in st.session_state:
     st.session_state.user_info = None
 if "last_route" not in st.session_state:
     st.session_state.last_route = None
+if "reports" not in st.session_state:
+    st.session_state.reports = []
 
 # Rensa onödig data när man byter sida
 def clear_route_data():
@@ -851,17 +853,20 @@ elif st.session_state.page == "rapportering":
     st.subheader("Karta över rapporterade hinder")
     map_center = [57.7089, 11.9746]
     m = folium.Map(location=map_center, zoom_start=13)
-    for report in st.session_state.reports:
-        if report['status'] == "aktiv":
-            folium.Marker(
-                [report['lat'], report['lon']],
-                popup=f"{report['type']}<br>{report['description']}<br>{report['address']}",
-                icon=folium.Icon(color="red", icon="exclamation-sign")
-            ).add_to(m)
+    
+    # Kontrollera om det finns rapporter innan vi försöker visa dem
+    if hasattr(st.session_state, 'reports') and st.session_state.reports:
+        for report in st.session_state.reports:
+            if report['status'] == "aktiv":
+                folium.Marker(
+                    [report['lat'], report['lon']],
+                    popup=f"{report['type']}<br>{report['description']}<br>{report['address']}",
+                    icon=folium.Icon(color="red", icon="exclamation-sign")
+                ).add_to(m)
     folium_static(m)
 
     st.subheader("Tidigare rapporter")
-    if st.session_state.reports:
+    if hasattr(st.session_state, 'reports') and st.session_state.reports:
         for i, r in enumerate(reversed(st.session_state.reports)):
             st.write(f"{i+1}. {r['address']} – {r['type']}")
             st.write(f"{r['description']}")
