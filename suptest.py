@@ -165,7 +165,7 @@ with st.sidebar.expander("📊 Dataset-analys: Majorna-Linné"):
         st.warning("Datasetet saknas. Lägg filen i data/gangvagar_majorna.geojson.")
 
 # API och session state
-ORS_API_KEY = st.secrets["api_keys"]["openrouteservice"]
+ORS_API_KEY = "5b3ce3597851110001cf62487ab1e05ef5b94e489695d7a4058f8bcd"
 client = openrouteservice.Client(key=ORS_API_KEY)
 
 # Optimera session state
@@ -193,6 +193,7 @@ def show_menu():
             ("💬 Forum", "forum"),
             ("🚧 Rapportera hinder", "rapportering"),
             ("⭐ Sparade rutter", "sparade"),
+            ("ℹ️ Om oss", "om_oss"),
             ("🚪 Logga ut", "login")
         ]
         for label, page in buttons:
@@ -419,19 +420,10 @@ elif st.session_state.page == "rutter":
     ors_profile = profile_map.get(user_info["funktionsvariation"], "driving-car")
 
     st.title(f"🗺️ Anpassad rutt för {user_info['funktionsvariation']}")
-    # --- NY INFO-RUTA FÖRKLARING ---
     st.info("""
-    **Så här tolkar du analysen av din rutt:**
-    
+    **Om analysen:**
     - **Underlag:** Här visas hur stor del av din rutt som går på olika material, t.ex. asfalt, grus eller kullersten. Asfalt är oftast bäst för rullstol, medan grus och kullersten kan vara svårare.
-    - **Maximal lutning:** Den brantaste backen på rutten. Över 6% kan vara svårt för rullstol.
-    - **Riskprocent:** Visar hur stor del av rutten som kan vara svårframkomlig, t.ex. på grund av grus, kullersten eller branta backar.
-        - **0–10%:** Låg risk, rutten är lätt att ta sig fram på.
-        - **10–30%:** Viss försiktighet behövs, delar av rutten kan vara svåra.
-        - **Över 30%:** Hög risk, stor del av rutten är svårframkomlig.
-    - **Total längd:** Rutten längd i meter eller kilometer.
-    
-    _Observera: Analysen gäller endast de delar av rutten där vi har data._
+    - Observera att analysen endast gäller de delar av rutten där vi har data, vilket är Majororna-Linne området
     """)
     start_address = st.text_input("Startadress")
     end_address = st.text_input("Slutadress")
@@ -841,3 +833,19 @@ elif st.session_state.page == "rapportering":
             st.markdown("---")
     else:
         st.write("Inga rapporter ännu.")
+
+# SID: OM OSS
+elif st.session_state.page == "om_oss":
+    show_menu()
+    st.title("ℹ️ Om oss")
+    st.markdown("""
+    <div style='text-align: left; font-size: 16px; color: #444; margin-top: 20px; line-height: 1.6;'>
+    <p>Vi som står bakom denna app är ett studentteam med ett gemensamt mål: att göra Göteborg mer tillgängligt för personer med rörelsehinder. Projektet är en del av vårt gruppatbete inom ramen för temat Active Mobility och Socialt Entreprenörskap.</p>
+
+    <p>Idén till verktyget växte fram efter att vi lyssnat till personer som dagligen upplever hinder i stadsmiljön, ojämna trottoarer, otillgängliga vägar och oro för att inte kunna ta sig fram på egen hand. Genom intervjuer och enkäter förstod vi att det finns ett stort gap mellan formell tillgänglighet och den faktiska verkligheten. Många planerar sin dag utifrån var de vågar ta sig, eller väljer att stanna hemma.</p>
+
+    <p>Vår prototyp erbjuder ruttplanering anpassad efter olika typer av rörelsehinder, med hänsyn till ytmaterial, lutning och hinder. Den innehåller även ett rapporteringssystem och ett forum där användare kan tipsa om rutter. Målet är att skapa en lösning som minskar osäkerhet, ökar trygghet och gör det möjligt för fler att röra sig fritt i staden.</p>
+
+    <p>Vi tror på teknikens kraft att skapa ett mer inkluderande samhälle. Det här är vårt första steg mot ett Göteborg där alla har rätt till fri rörlighet – oavsett förutsättningar.</p>
+    </div>
+    """, unsafe_allow_html=True)
