@@ -15,6 +15,9 @@ import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 import warnings
+import time
+from geopy.distance import geodesic
+
 warnings.filterwarnings('ignore')
 
 # ✅ SIDKONFIG
@@ -115,12 +118,18 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 📊 Dataset-analys för Majorna-Linné
-with st.sidebar.expander("📊 Dataset-analys: Majorna-Linné"):
+@st.cache_data(ttl=3600)
+def load_geojson_data():
     data_path = "data/gangvagar_majorna.geojson"
     if os.path.exists(data_path):
         with open(data_path, encoding='utf-8') as f:
-            data = json.load(f)
+            return json.load(f)
+    return None
+
+# 📊 Dataset-analys för Majorna-Linné
+with st.sidebar.expander("📊 Dataset-analys: Majorna-Linné"):
+    data = load_geojson_data()
+    if data:
         features = data.get("features", [])
         st.write(f"Antal gångvägar: {len(features)}")
 
@@ -156,7 +165,7 @@ with st.sidebar.expander("📊 Dataset-analys: Majorna-Linné"):
         st.warning("Datasetet saknas. Lägg filen i data/gangvagar_majorna.geojson.")
 
 # API och session state
-ORS_API_KEY = "5b3ce3597851110001cf62487ab1e05ef5b94e489695d7a4058f8bcd"
+ORS_API_KEY = st.secrets["api_keys"]["openrouteservice"]
 client = openrouteservice.Client(key=ORS_API_KEY)
 
 # Optimera session state
@@ -196,19 +205,21 @@ def show_menu():
                 st.rerun()
 
 # Funktioner
-from geopy.distance import geodesic
-
 GOTEBORG_CENTER = (57.7089, 11.9746)  # Göteborgs centrum
 MAX_DISTANCE_FROM_GBG_KM = 50         # Godtagbar radie
 
-# Optimera API-anrop med längre cache-tid och bättre felhantering
-@st.cache_data(ttl=7200)  # Cache för 2 timmar istället för 1
-def get_route_with_retry(start_coords, end_coords, max_retries=3, delay=2):  # Öka delay till 2 sekunder
+@st.cache_resource
+def load_ml_model():
+    model_data = joblib.load('ml_modell.pkl')
+    return model_data['model'], model_data['label_map']
+
+@st.cache_data(ttl=7200)  # Cache for 2 hours
+def get_route_with_retry(start_coords, end_coords, profile, max_retries=3, delay=2):
     for attempt in range(max_retries):
         try:
             route = client.directions(
                 coordinates=[start_coords, end_coords],
-                profile='foot-walking',
+                profile=profile,
                 format='geojson',
                 instructions=True,
                 language='en'
@@ -216,12 +227,11 @@ def get_route_with_retry(start_coords, end_coords, max_retries=3, delay=2):  # �
             return route
         except Exception as e:
             if attempt < max_retries - 1:
-                time.sleep(delay)  # Vänta längre mellan försök
+                time.sleep(delay)
                 continue
             raise e
 
-# Caching för geokodning
-@st.cache_data(ttl=7200)
+@st.cache_data(ttl=7200)  # Cache for 2 hours
 def geocode_address(address):
     try:
         result = client.pelias_search(text=address, sources=["osm"])
@@ -234,6 +244,14 @@ def geocode_address(address):
             return None
         return tuple(coords)
     except Exception:
+        return None
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_gangvagar_data():
+    try:
+        return gpd.read_file("data/gangvagar_majorna.geojson")
+    except Exception as e:
+        st.error(f"Error loading gangvagar data: {str(e)}")
         return None
 
 def show_map_with_position(route_coords, start_coords, end_coords):
@@ -289,11 +307,24 @@ def show_map_with_position(route_coords, start_coords, end_coords):
     '''
     html(html_code, height=650)
 
-# Optimera ML-prediktioner med bättre caching
-@st.cache_data(ttl=3600)  # Cache för 1 timme
-def load_ml_model():
-    model_data = joblib.load('ml_modell.pkl')
-    return model_data['model'], model_data['label_map']
+# Lägg in oversatt_instruktion här:
+def oversatt_instruktion(instr):
+    replacements = {
+        "Turn left": "Sväng vänster",
+        "Turn right": "Sväng höger",
+        "Head north": "Fortsätt norrut",
+        "Head south": "Fortsätt söderut",
+        "Head east": "Fortsätt österut",
+        "Head west": "Fortsätt västerut",
+        "Keep left": "Håll till vänster",
+        "Keep right": "Håll till höger",
+        "Arrive at your destination": "Du är framme vid din destination",
+        "onto": "på",
+        "and continue": "och fortsätt",
+    }
+    for eng, swe in replacements.items():
+        instr = instr.replace(eng, swe)
+    return instr
 
 # Ladda ML-modellen en gång vid start
 model, label_map = load_ml_model()
@@ -388,6 +419,20 @@ elif st.session_state.page == "rutter":
     ors_profile = profile_map.get(user_info["funktionsvariation"], "driving-car")
 
     st.title(f"🗺️ Anpassad rutt för {user_info['funktionsvariation']}")
+    # --- NY INFO-RUTA FÖRKLARING ---
+    st.info("""
+    **Så här tolkar du analysen av din rutt:**
+    
+    - **Underlag:** Här visas hur stor del av din rutt som går på olika material, t.ex. asfalt, grus eller kullersten. Asfalt är oftast bäst för rullstol, medan grus och kullersten kan vara svårare.
+    - **Maximal lutning:** Den brantaste backen på rutten. Över 6% kan vara svårt för rullstol.
+    - **Riskprocent:** Visar hur stor del av rutten som kan vara svårframkomlig, t.ex. på grund av grus, kullersten eller branta backar.
+        - **0–10%:** Låg risk, rutten är lätt att ta sig fram på.
+        - **10–30%:** Viss försiktighet behövs, delar av rutten kan vara svåra.
+        - **Över 30%:** Hög risk, stor del av rutten är svårframkomlig.
+    - **Total längd:** Rutten längd i meter eller kilometer.
+    
+    _Observera: Analysen gäller endast de delar av rutten där vi har data._
+    """)
     start_address = st.text_input("Startadress")
     end_address = st.text_input("Slutadress")
 
@@ -424,7 +469,7 @@ elif st.session_state.page == "rutter":
                 "Tips: använd både gatunamn och stad, t.ex. 'Järntorget, Göteborg'."
             )
             st.stop()
-        from geopy.distance import geodesic
+        
         distance_km = geodesic((start_coords[1], start_coords[0]), (end_coords[1], end_coords[0])).km
         if distance_km > 6000:
             st.error(
@@ -432,206 +477,127 @@ elif st.session_state.page == "rutter":
                 "Kontrollera att adresserna är rätt och inom rimligt avstånd."
             )
             st.stop()
-        st.write(f"Startkoord: {start_coords}")
-        st.write(f"Slutkoord: {end_coords}")
+        
         try:
-            route = get_route_with_retry(start_coords, end_coords)
+            route = get_route_with_retry(start_coords, end_coords, ors_profile)
             route_coords = route['features'][0]['geometry']['coordinates']
-            # Ta bort eller kommentera ut st.write(route_coords) så att det inte syns för användaren
-            # route_coords används bara internt
-            if len(route_coords) < 2:
-                st.error("❌ Ingen giltig rutt hittades mellan dessa adresser (för få punkter). Prova andra adresser.")
-                st.stop()
             show_map_with_position(route_coords, start_coords, end_coords)
-            # --- Spara senaste rutt i session_state ---
+            
+            # Save route in session state
             st.session_state["last_route"] = {
                 "email": user_info["email"],
                 "start": start_address,
                 "end": end_address,
                 "route_coords": json.dumps(route_coords)
             }
-            # ...resten av koden för instruktioner och analys...
 
-            # 🔎 Gångvägsanalys
-            import geopandas as gpd
-            from shapely.geometry import LineString
+            # Load and analyze gangvagar data
+            gangvagar = load_gangvagar_data()
+            if gangvagar is not None:
+                route_line = LineString([(lon, lat) for lon, lat in route_coords])
+                route_buffer = route_line.buffer(0.00005)
+                match = gangvagar[gangvagar.geometry.intersects(route_buffer)]
 
-            route_line = LineString([(lon, lat) for lon, lat in route_coords])
-            dataset_path = "data/gangvagar_majorna.geojson"
+                if not match.empty:
+                    model, label_map = load_ml_model()
+                    if model is not None and label_map is not None:
+                        # Calculate features
+                        total_length = route_line.length * 111000
+                        risk_length = sum(
+                            row.geometry.length * 111000
+                            for idx, row in match.iterrows()
+                            if row.get('surface') in ['grus', 'kullersten', 'jord']
+                        )
+                        risk_percent = (risk_length / total_length) * 100 if total_length > 0 else 0
+                        
+                        inclines = [
+                            float(row.get('incline').strip('%'))
+                            for idx, row in match.iterrows()
+                            if row.get('incline') and row.get('incline').endswith('%')
+                        ]
+                        max_incline = max(inclines) if inclines else 0
 
-            if not os.path.exists(dataset_path):
-                st.warning("Dataset saknas i 'data/gangvagar_majorna.geojson'")
-                st.stop()
+                        # Display results
+                        st.subheader("Bedömning av rutten")
+                        
+                        # Make prediction
+                        input_data = [[max_incline, risk_percent, total_length]]
+                        prediction_numeric = model.predict(input_data)[0]
+                        prediction = reverse_label_map[prediction_numeric]
 
-            gangvagar = gpd.read_file(dataset_path)
-            route_buffer = route_line.buffer(0.00005)
-            match = gangvagar[gangvagar.geometry.intersects(route_buffer)]
+                        # Visa endast användarvänlig prediktion
+                        if prediction == "svår":
+                            st.error("❗ Rutten bedöms som SVÅR – välj annan väg om möjligt.")
+                            st.info("""
+                            **Tips:**
+                            - Kontrollera väderförhållanden
+                            - Planera för eventuella pauser
+                            - Var extra uppmärksam på svåra sektioner
+                            """)
+                        elif prediction == "medel":
+                            st.warning("🔶 Rutten bedöms som MEDEL – viss försiktighet behövs.")
+                            st.info("""
+                            **Tips:**
+                            - Kontrollera väderförhållanden
+                            - Planera för eventuella pauser
+                            - Var extra uppmärksam på svåra sektioner
+                            """)
+                        else:
+                            st.success("✅ Rutten bedöms som LÄTT – god tillgänglighet.")
 
-            st.subheader("Tillgänglighetsanalys för din rutt")
-            if match.empty:
-                st.info(
-                    "Denna rutt går utanför området Majorna-Linné. Därför kan vi tyvärr inte visa någon analys av gångvägar eller tillgänglighet."
-                )
-            else:
-                matched_length = sum(geom.length * 111000 for geom in match.geometry if geom)
-                route_length = route_line.length * 111000
-                coverage_percent = (matched_length / route_length) * 100 if route_length > 0 else 0
+                        # Display route analysis
+                        st.subheader("Analys av gångvägar")
+                        
+                        # Skapa en tydligare beskrivning av material
+                        material_descriptions = {
+                            'asphalt': 'Asfalt (lätt att rulla på)',
+                            'fine_gravel': 'Fingrus (kan vara svårt)',
+                            'ground': 'Jord (kan vara mjukt och svårt)',
+                            'gravel': 'Grus (kan vara svårt)',
+                            'sett': 'Kullersten (mycket ojämnt)',
+                            'dirt': 'Jord (kan vara mjukt och svårt)'
+                        }
+                        
+                        st.write("**Underlag på rutten:**")
+                        ytmaterial = match['surface'].value_counts()
+                        total_segments = len(match)
+                        
+                        for mat, count in ytmaterial.items():
+                            percentage = (count / total_segments) * 100
+                            description = material_descriptions.get(mat, mat)
+                            st.write(f"- **{description}:** {percentage:.1f}% av rutten")
+                        
+                        st.write("")
+                        st.write(f"**Riskavsnitt:** {risk_length:.0f} m ({risk_percent:.1f}%) av rutten.")
+                        if risk_percent == 0:
+                            st.write("*Detta betyder att det inte finns några svåra eller riskfyllda delar på rutten – allt är bra och lätt att ta sig fram på!*")
+                        else:
+                            st.write("*Riskavsnitt är de delar av rutten som kan vara svåra att ta sig fram på, t.ex. grus, kullersten eller branta backar.*")
+                        
+                        st.write("")
+                        st.write(f"**Max lutning:** {max_incline}%")
+                        if max_incline == 0:
+                            st.write("*Detta betyder att det inte finns någon lutning alls på rutten – allt är helt platt. Perfekt för rullstol eller andra hjälpmedel!*")
+                        elif max_incline >= 6:
+                            st.warning("⚠️ Brant lutning >6% kan vara svårt för rullstol.")
+                        
+                        st.write("")
+                        st.write("**Tips:**")
+                        st.write("- Kontrollera väderförhållanden")
+                        st.write("- Planera för eventuella pauser")
+                        st.write("- Var extra uppmärksam på svåra sektioner")
 
-                # Reverse geocoding endast för första och sista segmentet
-                plats_start, plats_end = 'Okänd plats', 'Okänd plats'
-                if len(match.geometry) > 0:
-                    first_geom = match.geometry.iloc[0]
-                    last_geom = match.geometry.iloc[-1]
-                    try:
-                        start_coord = first_geom.coords[0]
-                        reverse_start = client.pelias_reverse(point=[start_coord[0], start_coord[1]], size=1)
-                        plats_start = reverse_start['features'][0]['properties'].get('label', 'Okänd plats')
-                    except Exception:
-                        pass
-                    try:
-                        end_coord = last_geom.coords[-1]
-                        reverse_end = client.pelias_reverse(point=[end_coord[0], end_coord[1]], size=1)
-                        plats_end = reverse_end['features'][0]['properties'].get('label', 'Okänd plats')
-                    except Exception:
-                        pass
-
-                if coverage_percent < 80:
-                    st.markdown(f"""
-                        <div style='background-color:#fffbe6; border-radius:8px; padding:16px; margin-bottom:16px; border:1px solid #ffe58f;'>
-                        <span style='font-size:22px;'>🔶</span> <b>Endast {coverage_percent:.1f}% av rutten finns i datasetet.</b><br>
-                        Ingen ML-analys kan göras. Rutten bedöms som <b>medel</b> tillgänglighet.
-                        </div>
-                    """, unsafe_allow_html=True)
-                    st.write(f"**Datasetet täcker rutten mellan:** <b>{plats_start}</b> och <b>{plats_end}</b>", unsafe_allow_html=True)
-                    ytmaterial = match['surface'].value_counts()
-                    for mat, count in ytmaterial.items():
-                        st.write(f"- {mat}: {count} segment ({(count / len(match)) * 100:.1f}%)")
-                    risk_length = 0
-                    total_length = route_line.length * 111000
-                    for idx, row in match.iterrows():
-                        if row.get('surface') in ['grus', 'kullersten', 'jord']:
-                            risk_length += row.geometry.length * 111000
-                    risk_percent = (risk_length / total_length) * 100 if total_length > 0 else 0
-                    inclines = [float(row.get('incline').strip('%')) for idx, row in match.iterrows() if row.get('incline') and row.get('incline').endswith('%')]
-                    max_incline = max(inclines) if inclines else 0
-                    st.write(f"**Riskavsnitt:** {risk_length:.0f} m ({risk_percent:.1f}%) av rutten.")
-                    st.write(f"**Max lutning:** {max_incline}%")
-                    if max_incline >= 6:
-                        st.warning("⚠️ Brant lutning >6% kan vara svårt för rullstol.")
-                    st.markdown("""
-                        <b>Tips:</b>
-                        <ul>
-                        <li>Kontrollera väderförhållanden</li>
-                        <li>Planera för eventuella pauser</li>
-                        <li>Var extra uppmärksam på svåra sektioner</li>
-                        </ul>
-                    """, unsafe_allow_html=True)
                 else:
-                    st.success(f"✅ {coverage_percent:.1f}% av rutten analyseras med ML.")
-                    risk_length = 0
-                    total_length = route_line.length * 111000
-                    for idx, row in match.iterrows():
-                        if row.get('surface') in ['grus', 'kullersten', 'jord']:
-                            risk_length += row.geometry.length * 111000
-                    risk_percent = (risk_length / total_length) * 100 if total_length > 0 else 0
-                    inclines = [float(row.get('incline').strip('%')) for idx, row in match.iterrows() if row.get('incline') and row.get('incline').endswith('%')]
-                    max_incline = max(inclines) if inclines else 0
-                    st.write(f"**ML-input: max_lutning={max_incline}, risk_percent={risk_percent}, total_length_m={total_length}")
-                    st.write(f"**ML-analys gäller för hela rutten mellan:** <b>{plats_start}</b> och <b>{plats_end}</b>", unsafe_allow_html=True)
-                    ytmaterial = match['surface'].value_counts()
-                    for mat, count in ytmaterial.items():
-                        st.write(f"- {mat}: {count} segment ({(count / len(match)) * 100:.1f}%)")
-                    risk_length = 0
-                    total_length = route_line.length * 111000
-                    for idx, row in match.iterrows():
-                        if row.get('surface') in ['grus', 'kullersten', 'jord']:
-                            risk_length += row.geometry.length * 111000
-                    risk_percent = (risk_length / total_length) * 100 if total_length > 0 else 0
-                    model_data = joblib.load("ml_modell.pkl")
-                    model = model_data['model']
-                    label_map = model_data['label_map']
-                    reverse_label_map = {v: k for k, v in label_map.items()}
-                    input_data = [[max_incline, risk_percent, total_length]]
-                    prediction_numeric = model.predict(input_data)[0]
-                    prediction = reverse_label_map[prediction_numeric]
-                    st.subheader("Maskininlärningsanalys:")
-                    feature_importances = model.feature_importances_
-                    features = ["Max lutning", "Riskprocent", "Total längd"]
-                    importance_df = pd.DataFrame({
-                        'Feature': features,
-                        'Importance': feature_importances
-                    }).sort_values('Importance', ascending=False)
-                    st.write("**Viktigaste faktorer för bedömningen:**")
-                    for _, row in importance_df.iterrows():
-                        st.write(f"- {row['Feature']}: {row['Importance']:.1%}")
-                    if prediction == "svår":
-                        st.markdown("""
-                            <div style='background-color:#fff1f0; border-radius:8px; padding:16px; margin-bottom:16px; border:1px solid #ffa39e;'>
-                            <span style='font-size:22px;'>❗</span> <b>Rutten bedöms som SVÅR – välj annan väg om möjligt.</b>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        st.markdown("""
-                            <b>Tips:</b>
-                            <ul>
-                            <li>Undvik om möjligt denna rutt</li>
-                            <li>Be om hjälp vid svåra partier</li>
-                            <li>Planera alternativa vägar</li>
-                            </ul>
-                        """, unsafe_allow_html=True)
-                    elif prediction == "medel":
-                        st.markdown("""
-                            <div style='background-color:#fffbe6; border-radius:8px; padding:16px; margin-bottom:16px; border:1px solid #ffe58f;'>
-                            <span style='font-size:22px;'>🔶</span> <b>Rutten bedöms som MEDEL – viss försiktighet behövs.</b>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        st.markdown("""
-                            <b>Tips:</b>
-                            <ul>
-                            <li>Kontrollera väderförhållanden</li>
-                            <li>Planera för eventuella pauser</li>
-                            <li>Var extra uppmärksam på svåra sektioner</li>
-                            </ul>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown("""
-                            <div style='background-color:#f6ffed; border-radius:8px; padding:16px; margin-bottom:16px; border:1px solid #b7eb8f;'>
-                            <span style='font-size:22px;'>✅</span> <b>Rutten bedöms som LÄTT – god tillgänglighet.</b>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        st.markdown("""
-                            <b>Tips:</b>
-                            <ul>
-                            <li>Låg lutning</li>
-                            <li>Bra underlag</li>
-                            <li>Hanterbar längd</li>
-                            </ul>
-                        """, unsafe_allow_html=True)
+                    st.info("Inga gångvägar från datasetet matchar denna rutt.")
 
-            def oversatt_instruktion(instr):
-                replacements = {
-                    "Turn left": "Sväng vänster",
-                    "Turn right": "Sväng höger",
-                    "Head north": "Fortsätt norrut",
-                    "Head south": "Fortsätt söderut",
-                    "Head east": "Fortsätt österut",
-                    "Head west": "Fortsätt västerut",
-                    "Keep left": "Håll till vänster",
-                    "Keep right": "Håll till höger",
-                    "Arrive at your destination": "Du är framme vid din destination",
-                    "onto": "på",
-                    "and continue": "och fortsätt",
-                }
-                for eng, swe in replacements.items():
-                    instr = instr.replace(eng, swe)
-                return instr
-
+            # Display step-by-step instructions
             st.subheader("Steg-för-steg-instruktioner")
             for step in route['features'][0]['properties']['segments'][0]['steps']:
                 svensk_instr = oversatt_instruktion(step['instruction'])
                 st.write(f"➡ {svensk_instr} – {step['distance']:.0f} m ({step['duration']/60:.1f} min)")
 
         except Exception as e:
-            st.exception(e)
+            st.error(f"Ett fel uppstod: {str(e)}")
 
     
 # SID: SPARADE RUTTER
@@ -875,12 +841,3 @@ elif st.session_state.page == "rapportering":
             st.markdown("---")
     else:
         st.write("Inga rapporter ännu.")
-
-model_data = joblib.load('ml_modell.pkl')
-model = model_data['model']
-label_map = model_data['label_map']
-reverse_label_map = {v: k for k, v in label_map.items()}
-# Testa en "svår" rutt
-input_data = [[8.5, 50.0, 1100]]
-pred = model.predict(input_data)[0]
-print(reverse_label_map[pred])
