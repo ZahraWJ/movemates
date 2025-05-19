@@ -1,7 +1,7 @@
 streamlit==1.32.0
 pandas
 numpy
-openrouteservice==2.3.8
+openrouteservice
 folium==0.15.1
 streamlit-folium
 geopy==2.4.1
