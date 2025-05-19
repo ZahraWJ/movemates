@@ -517,32 +517,13 @@ elif st.session_state.page == "rutter":
                         ]
                         max_incline = max(inclines) if inclines else 0
 
+                        # Display results
+                        st.subheader("Bedömning av rutten")
+                        
                         # Make prediction
                         input_data = [[max_incline, risk_percent, total_length]]
                         prediction_numeric = model.predict(input_data)[0]
                         prediction = reverse_label_map[prediction_numeric]
-
-                        # Display results
-                        st.subheader("🤖 Maskininlärningsanalys")
-                        feature_importances = model.feature_importances_
-                        features = [
-                            "Max lutning ℹ️",  # Info-ikon
-                            "Riskprocent ℹ️",
-                            "Total längd ℹ️"
-                        ]
-                        importance_df = pd.DataFrame({
-                            'Feature': features,
-                            'Importance': feature_importances
-                        }).sort_values('Importance', ascending=False)
-                        
-                        st.write("**Viktigaste faktorer för bedömningen:**")
-                        for _, row in importance_df.iterrows():
-                            if "Max lutning" in row['Feature']:
-                                st.write(f"- {row['Feature']}: {row['Importance']:.1%}  ", help="Den brantaste backen på rutten. Över 6% kan vara svårt för rullstol.")
-                            elif "Riskprocent" in row['Feature']:
-                                st.write(f"- {row['Feature']}: {row['Importance']:.1%}  ", help="Andel av rutten som är svårframkomlig, t.ex. grus, kullersten eller branta backar.")
-                            elif "Total längd" in row['Feature']:
-                                st.write(f"- {row['Feature']}: {row['Importance']:.1%}  ", help="Rutten längd i meter eller kilometer.")
 
                         # Visa endast användarvänlig prediktion
                         if prediction == "svår":
@@ -565,23 +546,52 @@ elif st.session_state.page == "rutter":
                             st.success("✅ Rutten bedöms som LÄTT – god tillgänglighet.")
 
                         # Display route analysis
-                        st.subheader("🔎 Analys av gångvägar")
+                        st.subheader("Analys av gångvägar")
+                        
+                        # Skapa en tydligare beskrivning av material
+                        material_descriptions = {
+                            'asphalt': 'Asfalt (lätt att rulla på)',
+                            'fine_gravel': 'Fingrus (kan vara svårt)',
+                            'ground': 'Jord (kan vara mjukt och svårt)',
+                            'gravel': 'Grus (kan vara svårt)',
+                            'sett': 'Kullersten (mycket ojämnt)',
+                            'dirt': 'Jord (kan vara mjukt och svårt)'
+                        }
+                        
+                        st.write("**Underlag på rutten:**")
                         ytmaterial = match['surface'].value_counts()
                         total_segments = len(match)
-                        for mat, count in ytmaterial.items():
-                            percent = min((count / total_segments) * 100, 100)  # Max 100%
-                            st.write(f"- {mat}: {percent:.1f}% av rutten")
                         
+                        for mat, count in ytmaterial.items():
+                            percentage = (count / total_segments) * 100
+                            description = material_descriptions.get(mat, mat)
+                            st.write(f"- **{description}:** {percentage:.1f}% av rutten")
+                        
+                        st.write("")
                         st.write(f"**Riskavsnitt:** {risk_length:.0f} m ({risk_percent:.1f}%) av rutten.")
+                        if risk_percent == 0:
+                            st.write("*Detta betyder att det inte finns några svåra eller riskfyllda delar på rutten – allt är bra och lätt att ta sig fram på!*")
+                        else:
+                            st.write("*Riskavsnitt är de delar av rutten som kan vara svåra att ta sig fram på, t.ex. grus, kullersten eller branta backar.*")
+                        
+                        st.write("")
                         st.write(f"**Max lutning:** {max_incline}%")
-                        if max_incline >= 6:
+                        if max_incline == 0:
+                            st.write("*Detta betyder att det inte finns någon lutning alls på rutten – allt är helt platt. Perfekt för rullstol eller andra hjälpmedel!*")
+                        elif max_incline >= 6:
                             st.warning("⚠️ Brant lutning >6% kan vara svårt för rullstol.")
+                        
+                        st.write("")
+                        st.write("**Tips:**")
+                        st.write("- Kontrollera väderförhållanden")
+                        st.write("- Planera för eventuella pauser")
+                        st.write("- Var extra uppmärksam på svåra sektioner")
 
                 else:
                     st.info("Inga gångvägar från datasetet matchar denna rutt.")
 
             # Display step-by-step instructions
-            st.subheader("📝 Steg-för-steg-instruktioner")
+            st.subheader("Steg-för-steg-instruktioner")
             for step in route['features'][0]['properties']['segments'][0]['steps']:
                 svensk_instr = oversatt_instruktion(step['instruction'])
                 st.write(f"➡ {svensk_instr} – {step['distance']:.0f} m ({step['duration']/60:.1f} min)")
