@@ -547,7 +547,8 @@ elif st.session_state.page == "rutter":
                             'ground': 'Jord (kan vara mjukt och svårt)',
                             'gravel': 'Grus (kan vara svårt)',
                             'sett': 'Kullersten (mycket ojämnt)',
-                            'dirt': 'Jord (kan vara mjukt och svårt)'
+                            'dirt': 'Jord (kan vara mjukt och svårt)',
+                            'paving_stones': 'Kullersten (mycket ojämnt)'
                         }
                         
                         st.write("**Underlag på rutten:**")
